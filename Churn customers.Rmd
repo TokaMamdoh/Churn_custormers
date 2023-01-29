@@ -1,0 +1,432 @@
+Importing the libraries
+```{r}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(reshape)
+library(scales)
+library(corrplot)
+library(gridExtra)
+library(ggthemes)
+library(caret)
+library(MASS)
+library(caTools)
+library(rpart)
+library(rpart.plot)
+library(rsample)
+library(xgboost)
+library(keras)
+library(tensorflow)
+library(devtools)
+library(pROC)
+library(arules)
+library(readr)
+library(rfUtilities)
+library(e1071)
+library(superml)
+```
+Importing the dataset
+```{r}
+churn <- read.csv('D:/DEBI/Uottawa/Applied Data Science/Assignment 2/Churn Dataset.csv')
+```
+Scatter matrix plot
+```{r}
+churn %>%
+  select_if(is.numeric) %>%
+  scale() %>%
+  pairs(main = 'Scatter matrix plot',pch = 21,bg = c("red","blue"))
+```
+Heatmap plot
+```{r}
+data <- cor(churn[sapply(churn,is.numeric)])
+df <- melt(data)
+ggplot(df,aes(x = X1, y = X2, fill = value))+
+  geom_tile(aes(fill = value), colour = "white") +
+  scale_fill_gradient(low = "white", high = "red")
+```
+Data Preprocessing
+1)finding and remove NA
+```{r}
+sapply(churn,function(x) sum(is.na(x)))
+churn <- churn[complete.cases(churn),]
+```
+2)Replace no internet service into no
+```{r}
+col_recode1 <- c(10:15)
+for (i in 1:ncol(churn[,col_recode1]))
+{churn[,col_recode1][,i] <- as.factor(mapvalues(churn[,col_recode1][,i],
+                                                from = c("No internet service"), to = c("No")))}
+
+churn$MultipleLines <- as.factor(mapvalues(churn$MultipleLines,
+                                               from = c("No phone service"), to = c("No")))
+
+```
+3)Convert tenure into factor
+```{r}
+group_tenure <- function(tenure){
+  if (tenure >= 0 & tenure <= 12)
+  {return('0-12 Month')}
+  else if (tenure > 12 & tenure <= 24)
+  {return('12-24 Month')}
+  else if (tenure > 24 & tenure <=48)
+  {return('24-48 Month')}
+  else if (tenure > 48 & tenure <= 60)
+  {return('48-60 Month')}
+  else if (tenure >60)
+  {return('>60 Month')}
+}
+churn$tenure_group <- sapply(churn$tenure,group_tenure)
+churn$tenure_group <- as.factor(churn$tenure_group)
+
+```
+4)remove reduantent columns
+```{r}
+churn$customerID <- NULL
+churn$tenure <- NULL
+```
+
+Correlation
+```{r}
+numeric_data <- sapply(churn,is.numeric)
+corr_matrix <- cor(churn[,numeric_data])
+corrplot(corr_matrix,main = 'Correlation plot for numeric data',
+         method = 'number')
+```
+```{r}
+churn$TotalCharges <- NULL
+```
+Barplot
+```{r}
+p1 <- ggplot(churn, aes(x=gender)) + ggtitle("Gender") + xlab("Gender") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p2 <- ggplot(churn, aes(x=SeniorCitizen)) + ggtitle("SeniorCitizen") + xlab("SeniorCitizen") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p3 <- ggplot(churn, aes(x=Partner)) + ggtitle("Partner") + xlab("Partner") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p4 <- ggplot(churn, aes(x=Dependents)) + ggtitle("Dependents") + xlab("Dependents") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+grid.arrange(p1,p2,p3,p4, ncol =2)
+```
+```{r}
+p5 <- ggplot(churn, aes(x=PhoneService)) + ggtitle("Phone Service") + xlab("Phone Service") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p6 <- ggplot(churn, aes(x=MultipleLines)) + ggtitle("Multiple Lines") + xlab("Multiple Lines") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p7 <- ggplot(churn, aes(x=InternetService)) + ggtitle("Internet Service") + xlab("Internet Service") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p8 <- ggplot(churn, aes(x=OnlineSecurity)) + ggtitle("Online Security") + xlab("Online Security") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+grid.arrange(p5, p6, p7, p8, ncol=2)
+```
+```{r}
+p9 <- ggplot(churn, aes(x=OnlineBackup)) + ggtitle("Online Backup") + xlab("Online Backup") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p10 <- ggplot(churn, aes(x=DeviceProtection)) + ggtitle("Device Protection") + xlab("Device Protection") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p11 <- ggplot(churn, aes(x=TechSupport)) + ggtitle("Tech Support") + xlab("Tech Support") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p12 <- ggplot(churn, aes(x=StreamingTV)) + ggtitle("Streaming TV") + xlab("Streaming TV") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+grid.arrange(p9, p10, p11, p12, ncol=2)
+```
+```{r}
+p13 <- ggplot(churn, aes(x=StreamingMovies)) + ggtitle("Streaming Movies") + xlab("Streaming Movies") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p14 <- ggplot(churn, aes(x=Contract)) + ggtitle("Contract") + xlab("Contract") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p15 <- ggplot(churn, aes(x=PaperlessBilling)) + ggtitle("Paperless Billing") + xlab("Paperless Billing") + 
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) + 
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p16 <- ggplot(churn, aes(x=PaymentMethod)) + ggtitle("Payment Method") + xlab("Payment Method") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+p17 <- ggplot(churn, aes(x=tenure_group)) + ggtitle("Tenure Group") + xlab("Tenure Group") +
+  geom_bar(aes(y = 100*(..count..)/sum(..count..)), width = 0.5) +
+  ylab("Percentage") + coord_flip() + theme_minimal()
+
+grid.arrange(p13, p14, p15, p16, p17, ncol=2)
+```
+Label encoder
+```{r}
+lbl = LabelEncoder$new()
+churn$gender = lbl$fit_transform(churn$gender)
+churn$Partner = lbl$fit_transform(churn$Partner)
+churn$Dependents = lbl$fit_transform(churn$Dependents)
+churn$PhoneService = lbl$fit_transform(churn$PhoneService)
+churn$MultipleLines = lbl$fit_transform(churn$MultipleLines)
+churn$InternetService = lbl$fit_transform(churn$InternetService)
+churn$OnlineSecurity = lbl$fit_transform(churn$OnlineSecurity)
+churn$OnlineBackup = lbl$fit_transform(churn$OnlineBackup)
+churn$DeviceProtection = lbl$fit_transform(churn$DeviceProtection)
+churn$TechSupport = lbl$fit_transform(churn$TechSupport)
+churn$StreamingTV = lbl$fit_transform(churn$StreamingTV)
+churn$StreamingMovies = lbl$fit_transform(churn$StreamingMovies)
+churn$PaymentMethod = lbl$fit_transform(churn$PaymentMethod)
+churn$Churn = lbl$fit_transform(churn$Churn)
+churn$tenure_group = lbl$fit_transform(churn$tenure_group)
+churn$Contract = lbl$fit_transform(churn$Contract)
+churn$PaperlessBilling = lbl$fit_transform(churn$PaperlessBilling)
+```
+Train-Test-split
+```{r}
+set.seed(1112)
+train_test_split<- createDataPartition(churn$Churn, p = 0.8,list = F)
+train_set = churn[train_test_split, ]
+test_set = churn[-train_test_split, ]
+x_train = train_set[-18]
+x_test = test_set[-18]
+y_train = train_set[,18]
+y_test = test_set[,18]
+```
+Decision tree
+```{r}
+dt<-rpart(y_train ~ ., x_train,method = "class") #train the model
+rpart.plot(dt)
+y_dt <-predict(dt, x_test, type = "class") #predict the target
+m_at <- table(y_test, y_dt)
+ac_Test <- sum(diag(m_at)) / sum(m_at)
+print(paste('Accuracy for test is found to be', ac_Test*100))
+confusionMatrix(y_dt , as.factor(y_test), mode = "everything")
+```
+Decision tree with Gini index
+```{r}
+dt_gini<-rpart(y_train ~ ., x_train,method = "class",parms = list(split = "gini"))
+rpart.plot(dt_gini)
+y_dt_gini <-predict(dt_gini, x_test, type = "class")
+m_at <- table(y_test, y_dt_gini)
+ac_Test <- sum(diag(m_at)) / sum(m_at)
+print(paste('Accuracy for test is found to be', ac_Test*100))
+confusionMatrix(y_dt_gini , as.factor(y_test), mode = "everything")
+```
+Decision tree with information gain
+```{r}
+dt_info<-rpart(y_train ~ ., x_train,method = "class",parms = list(split = "information"))
+rpart.plot(dt_info)
+y_dt_info <-predict(dt_info, x_test, type = "class")
+m_at <- table(y_test, y_dt_info)
+ac_Test <- sum(diag(m_at)) / sum(m_at)
+print(paste('Accuracy for test is found to be', ac_Test*100))
+confusionMatrix(y_dt_info , as.factor(y_test), mode = "everything")
+```
+Decision tree with pruning
+```{r}
+dt_prune <- rpart(y_train~ ., x_train ,method = "class",control = rpart.control(cp = 0))
+plotcp(dt_prune)
+DT_model_pruned <- prune(dt_prune, cp = 0.002)
+y_prune <- predict(DT_model_pruned, newdata = subset(test_set), select = x_test,type = "class" )
+table_mat_prune <- table(y_test,y_prune)
+acc_Test_prune <- sum(diag(table_mat_prune)) / sum(table_mat_prune)
+print(paste("Accuracy:", acc_Test_prune*100))
+confusionMatrix(y_prune , as.factor(y_test), mode = "everything")
+```
+
+xgboost
+```{r}
+xg <- xgboost(data = as.matrix(x_train),label = y_train,max.depth=3,nrounds=70) 
+y_pred_xg = predict(xg, newdata = as.matrix(x_test))
+y_pred_xg <- ifelse(y_pred_xg>0.5,1,0)
+y_pred_xg <- as.factor(y_pred_xg)
+y_test <- as.factor(y_test)
+confusionMatrix(y_pred_xg,y_test)
+```
+
+Deep neural network
+```{r}
+y_train_encode<-to_categorical(y_train,2)
+y_test_encode<-to_categorical(y_test,2)
+keras <- function(x_train,x_test,y_train_encode,
+                  rate,activation1,activation2,activation3){
+  model_keras <- keras_model_sequential()
+  model_keras %>%
+    layer_dense(units = 18 ,input_shape = 18) %>%
+    layer_dropout(rate=rate)%>%
+    layer_activation(activation =activation1 ) %>%
+    layer_dense(units = 50) %>%
+    layer_dropout(rate=rate)%>%
+    layer_activation(activation = activation2) %>%
+    layer_dense(units = 2) %>%
+    layer_activation(activation = activation3)
+  model_keras %>% compile(
+    loss = 'categorical_crossentropy',
+    optimizer = 'adam',
+    metrics = c('accuracy')
+  ) 
+  fit_keras<-model_keras%>%fit(x = as.matrix(x_train), y = y_train_encode,
+                               epochs = 35, batch_size = 50,validation_split = 0.3)
+  y_pred_keras <- predict(model_keras,x = as.matrix(x_test))
+  return(y_pred_keras)
+}
+```
+
+```{r}
+y_pred_keras_1 <- keras(x_train,x_test,y_train_encode,
+                        0.1,"relu","relu","softmax")
+y_pred_keras_1 <- ifelse(y_pred_keras_1>0.5,1,0)
+y_pred_keras_1 <- as.data.frame(y_pred_keras_1)
+y_pred_keras_1$V2 <- NULL
+y_pred_keras_1$V1 <- factor(y_pred_keras_1$V1)
+y_test_encode <- as.data.frame(y_test_encode)
+y_test_encode$V2 <- NULL
+y_test_encode$V1 <- factor(y_test_encode$V1)
+confusionMatrix(y_pred_keras_1$V1,y_test_encode$V1)
+```
+```{r}
+y_test_encode<-to_categorical(y_test,2)
+y_pred_keras_2 <- keras(x_train,x_test,y_train_encode,
+                        0.4,"relu","relu","softmax")
+y_pred_keras_2 <- ifelse(y_pred_keras_2>0.5,1,0)
+y_pred_keras_2 <- as.data.frame(y_pred_keras_2)
+y_pred_keras_2$V2 <- NULL
+y_pred_keras_2$V1 <- factor(y_pred_keras_2$V1)
+y_test_encode <- as.data.frame(y_test_encode)
+y_test_encode$V2 <- NULL
+y_test_encode$V1 <- factor(y_test_encode$V1)
+confusionMatrix(y_pred_keras_2$V1,y_test_encode$V1)
+
+```
+```{r}
+y_test_encode<-to_categorical(y_test,2)
+y_pred_keras_3 <- keras(x_train,x_test,y_train_encode,
+                        0.1,"relu","relu","sigmoid")
+y_pred_keras_3 <- ifelse(y_pred_keras_3>0.5,1,0)
+y_pred_keras_3 <- as.data.frame(y_pred_keras_3)
+y_pred_keras_3$V2 <- NULL
+y_pred_keras_3$V1 <- factor(y_pred_keras_3$V1)
+y_test_encode <- as.data.frame(y_test_encode)
+y_test_encode$V2 <- NULL
+y_test_encode$V1 <- factor(y_test_encode$V1)
+confusionMatrix(y_pred_keras_3$V1,y_test_encode$V1)
+```
+```{r}
+y_test_encode<-to_categorical(y_test,2)
+y_pred_keras_4 <- keras(x_train,x_test,y_train_encode,
+                        0.4,"relu","relu","sigmoid")
+y_pred_keras_4 <- ifelse(y_pred_keras_4>0.5,1,0)
+y_pred_keras_4 <- as.data.frame(y_pred_keras_4)
+y_pred_keras_4$V2 <- NULL
+y_pred_keras_4$V1 <- factor(y_pred_keras_4$V1)
+y_test_encode <- as.data.frame(y_test_encode)
+y_test_encode$V2 <- NULL
+y_test_encode$V1 <- factor(y_test_encode$V1)
+confusionMatrix(y_pred_keras_4$V1,y_test_encode$V1)
+```
+
+Compute accuracy,recall,precision,f1 for each model
+```{r}
+classification_report <- function(y_test,y_pred){
+  tbl <-table(y_pred,y_test)
+  Recall <- recall(tbl)
+  Precision <- precision(tbl)
+  f1 <- F_meas(tbl)
+  acc <- accuracy(tbl)
+  df <- data.frame(Precision, Recall, f1,acc$PCC)
+  return(df) 
+}
+```
+
+```{r}
+#1) Decision tree
+df_dt <- classification_report(y_test,y_dt)
+#2) Decision tree with gini index
+df_dt_gini <- classification_report(y_test,y_dt_gini)
+#3) Decision tree with information gain
+df_dt_info <- classification_report(y_test,y_dt_info)
+#4)Decision tree pruned
+df_prune <- classification_report(y_test,y_prune)
+#5)XGBoost
+df_xg <- classification_report(y_test,y_pred_xg)
+#6)Deep neural network 
+df_nn_1 <- classification_report(y_test_encode$V1,y_pred_keras_1$V1)
+df_nn_2 <- classification_report(y_test_encode$V1,y_pred_keras_2$V1)
+df_nn_3 <- classification_report(y_test_encode$V1,y_pred_keras_3$V1)
+df_nn_4 <- classification_report(y_test_encode$V1,y_pred_keras_4$V1)
+```
+
+ROC
+```{r}
+roc_score_dt = roc(as.numeric(y_test),as.numeric(y_dt))
+plot(roc_score_dt,main = "ROC curve for Decision tree")
+
+roc_score_dt_gini = roc(as.numeric(y_test),as.numeric(y_dt_gini))
+plot(roc_score_dt_gini,main = "ROC curve for Decision tree with Gini index")
+
+roc_score_dt_info = roc(as.numeric(y_test),as.numeric(y_dt_info))
+plot(roc_score_dt_info,main = "ROC curve for Decision tree with information gain")
+
+roc_score_dt_p = roc(as.numeric(y_test),as.numeric(y_prune))
+plot(roc_score_dt_p,main = "ROC curve for Decision tree after pruned")
+
+roc_score_xg = roc(as.numeric(y_test),as.numeric(y_pred_xg))
+plot(roc_score_xg,main = "ROC curve for XGBoost")
+
+roc_score_keras_1 = roc(as.numeric(y_test_encode$V1),as.numeric(y_pred_keras_1$V1))
+plot(roc_score_keras_1,main = "ROC curve for deep neural network 1")
+
+roc_score_keras_2 = roc(as.numeric(y_test_encode$V1),as.numeric(y_pred_keras_2$V1))
+plot(roc_score_keras_2,main = "ROC curve for deep neural network 2")
+
+roc_score_keras_3 = roc(as.numeric(y_test_encode$V1),as.numeric(y_pred_keras_3$V1))
+plot(roc_score_keras_3,main = "ROC curve for deep neural network 3")
+
+roc_score_keras_4 = roc(as.numeric(y_test_encode$V1),as.numeric(y_pred_keras_4$V1))
+plot(roc_score_keras_4,main = "ROC curve for deep neural network 4")
+```
+
+Part B:
+```{r}
+trans <- read.transactions("D:/DEBI/Uottawa/Applied Data Science/Assignment 2/transactions.csv", sep = ",")
+
+```
+
+plot top 10 transaction 
+```{r}
+itemFrequencyPlot(trans,topN = 10)
+image(trans[1:10])
+```
+
+Association rules with maximum length 3
+```{r}
+rules = apriori(data = trans, parameter = list(support = 0.002, confidence = 0.20,maxlen=3))
+lift <- inspect(sort(rules, by = 'lift'))
+rules_df <- as(rules, "data.frame")
+str(rules_df)
+```
+
+Association rules with maximum length 2
+```{r}
+rules_2 = apriori(data = trans, parameter = list(support = 0.002, confidence = 0.20,maxlen=2))
+lift <- inspect(sort(rules_2, by = 'lift'))
+rules_df_2 <- as(rules_2, "data.frame")
+str(rules_df_2)
+```
+
